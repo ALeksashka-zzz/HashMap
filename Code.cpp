@@ -10,22 +10,25 @@
 #include <utility>
 #include <vector>
 
+const size_t InitSize = 10;
+const size_t LoadFactor = 2;
+
 template <class KeyType, class ValueType, class Hash = std::hash<KeyType>> 
 class HashMap {
 private:
     using Node = typename std::pair <const KeyType, ValueType>;
-    using Bucket = typename std::list<Node>::iterator;
+    using NodeIter = typename std::list<Node>::iterator;
 
     Hash Hasher;
-    size_t NodesSize;
+    size_t NodeCount = 0;
     std::list<Node> Nodes;
-    std::vector<Bucket> Table;
+    std::vector<NodeIter> Table;
 
 public:
-    HashMap(const Hash &Hasher_ = Hash());
+    explicit HashMap(const Hash &Hasher_ = Hash());
     template<class InputIt>
-    HashMap(InputIt First, InputIt Last, const Hash &Hasher_ = Hash());
-    HashMap(std::initializer_list<Node> InitList, const Hash &Hasher_ = Hash());
+    explicit HashMap(InputIt First, InputIt Last, const Hash &Hasher_ = Hash());
+    explicit HashMap(std::initializer_list<Node> InitList, const Hash &Hasher_ = Hash());
 
     size_t size() const;
     bool empty() const;
@@ -55,33 +58,35 @@ public:
 };
 
 template<class KeyType, class ValueType, class Hash> 
-HashMap<KeyType, ValueType, Hash>::HashMap(const Hash &Hasher_): Hasher(Hasher_), NodesSize(0) {
-    Table.assign(10, Nodes.end());
+HashMap<KeyType, ValueType, Hash>::HashMap(const Hash &Hasher_): Hasher(Hasher_) {
+    Table.assign(InitSize, Nodes.end());
 }
 
 template<class KeyType, class ValueType, class Hash>
 template<class InputIt>
-HashMap<KeyType, ValueType, Hash>::HashMap(InputIt First, InputIt Last, const Hash &Hasher_) : Hasher(Hasher_), NodesSize(0) {
-    Table.assign(10, Nodes.end());
+HashMap<KeyType, ValueType, Hash>::HashMap(InputIt First, InputIt Last, const Hash &Hasher_) : Hasher(Hasher_) {
+    size_t Size = std::distance(First, Last);
+    Table.resize(std::max((Size + 1) * 2, InitSize), Nodes.end());
     for (; First != Last; ++First) {
-        this->insert(*First);
+        insert(*First);
     }
 }
 
 template<class KeyType, class ValueType, class Hash>
-HashMap<KeyType, ValueType, Hash>::HashMap(std::initializer_list<Node> InitList, const Hash &Hasher_) : Hasher(Hasher_), NodesSize(0) {
-    Table.assign(10, Nodes.end());
-    for (const Node to : InitList) {
-        this->insert(to);
+HashMap<KeyType, ValueType, Hash>::HashMap(std::initializer_list<Node> InitList, const Hash &Hasher_) : Hasher(Hasher_) {
+    size_t Size = InitList.size();
+    Table.resize(std::max((Size + 1) * 2, InitSize), Nodes.end());
+    for (const Node &to : InitList) {
+        insert(to);
     }
 }
 
 template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>::HashMap(const HashMap<KeyType, ValueType, Hash> &other) {
     if (this != &other) {
-        this->clear();
+        clear();
         for (const Node &to : other) {
-            this->insert(to);
+            insert(to);
         }
     }
 }
@@ -89,9 +94,9 @@ HashMap<KeyType, ValueType, Hash>::HashMap(const HashMap<KeyType, ValueType, Has
 template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>& HashMap<KeyType, ValueType, Hash>::operator=(const HashMap<KeyType, ValueType, Hash> &other) {
     if (this != &other) {
-        this->clear();
+        clear();
         for (const Node &to : other) {
-            this->insert(to);
+            insert(to);
         }
     }
     return *this;
@@ -99,7 +104,7 @@ HashMap<KeyType, ValueType, Hash>& HashMap<KeyType, ValueType, Hash>::operator=(
 
 template <class KeyType, class ValueType, class Hash> 
 size_t HashMap<KeyType, ValueType, Hash>::size() const {
-    return NodesSize;
+    return NodeCount;
 }
 
 template<class KeyType, class ValueType, class Hash> 
@@ -114,48 +119,48 @@ Hash HashMap<KeyType, ValueType, Hash>::hash_function() const {
 
 template<class KeyType, class ValueType, class Hash> 
 void HashMap<KeyType, ValueType, Hash>::insert(const Node &Node_) {
-    if ((NodesSize + 1) * 2 > Table.size()) {
-        this->resize();
+    if ((NodeCount + 1) * LoadFactor > Table.size()) {
+        resize();
     }
-    size_t BucketIt = Hasher(Node_.first) % Table.size();
+    size_t Index = Hasher(Node_.first) % Table.size();
     while (true) {
-        if (Table[BucketIt] == Nodes.end()) {
+        if (Table[Index] == Nodes.end()) {
             Nodes.push_back(Node_);
-            ++NodesSize;
-            Table[BucketIt] = --(Nodes.end());
+            ++NodeCount;
+            Table[Index] = --(Nodes.end());
             return;
         }
-        (++BucketIt) %= Table.size();
+        (++Index) %= Table.size();
     }
 }
 
 template<class KeyType, class ValueType, class Hash> 
 void HashMap<KeyType, ValueType, Hash>::erase(const KeyType &Key) {
-    size_t BucketIt = Hasher(Key) % Table.size();
+    size_t Index = Hasher(Key) % Table.size();
     while (true) {
-        if (Table[BucketIt] == Nodes.end()) {
+        if (Table[Index] == Nodes.end()) {
             return;
-        } else {
-            if (Table[BucketIt]->first == Key) {
-                break;
-            }
+        } else if (Table[Index]->first == Key) {
+            break;
         }
-        (++BucketIt) %= Table.size();
+        (++Index) %= Table.size();
     }
-    Nodes.erase(Table[BucketIt]);
-    --NodesSize;
-    size_t Last = BucketIt;
+    Nodes.erase(Table[Index]);
+    --NodeCount;
+    size_t Last = Index;
+    // Searching until first empty cell occurs.  
     while (true) {
-        (++BucketIt) %= Table.size();
-        if (Table[BucketIt] == Nodes.end()) {
+        (++Index) %= Table.size();
+        if (Table[Index] == Nodes.end()) {
             Table[Last] = Nodes.end();
             return;
         } else {
-            size_t RealHash = Hasher(Table[BucketIt]->first) % Table.size();
-            if ((BucketIt > Last && (RealHash <= Last || RealHash > BucketIt)) ||
-                (BucketIt < Last && (RealHash <= Last && RealHash > BucketIt))) {
-                Table[Last] = Table[BucketIt];
-                Last = BucketIt;
+            // The current node (Index) had to be moved to the last empty cell (Last) if it obeys the following conditions.
+            size_t RealHash = Hasher(Table[Index]->first) % Table.size();
+            if ((Index > Last && (RealHash <= Last || RealHash > Index)) ||
+                (Index < Last && (RealHash <= Last && RealHash > Index))) {
+                Table[Last] = Table[Index];
+                Last = Index;
             }
         }
     }
@@ -163,77 +168,70 @@ void HashMap<KeyType, ValueType, Hash>::erase(const KeyType &Key) {
 
 template<class KeyType, class ValueType, class Hash> 
 typename HashMap<KeyType, ValueType, Hash>::iterator HashMap<KeyType, ValueType, Hash>::find(const KeyType& Key) {
-    size_t BucketIt = Hasher(Key) % Table.size();
+    size_t Index = Hasher(Key) % Table.size();
     while (true) {
-        if (Table[BucketIt] == Nodes.end()) {
+        if (Table[Index] == Nodes.end()) {
             return Nodes.end();
-        } else {
-            if (Table[BucketIt]->first == Key) {
-                return Table[BucketIt];
-            }
+        } else if (Table[Index]->first == Key) {
+            return Table[Index];
         }
-        (++BucketIt) %= Table.size();
+        (++Index) %= Table.size();
     }
 }
 
 template<class KeyType, class ValueType, class Hash> 
 typename HashMap<KeyType, ValueType, Hash>::const_iterator HashMap<KeyType, ValueType, Hash>::find(const KeyType& Key) const {
-    size_t BucketIt = Hasher(Key) % Table.size();
+    size_t Index = Hasher(Key) % Table.size();
     while (true) {
-        if (Table[BucketIt] == Nodes.end()) {
+        if (Table[Index] == Nodes.end()) {
             return Nodes.end();
-        } else {
-            if (Table[BucketIt]->first == Key) {
-                return Table[BucketIt];
-            }
+        } else if (Table[Index]->first == Key) {
+            return Table[Index];
         }
-        (++BucketIt) %= Table.size();
+        (++Index) %= Table.size();
     }
 }
 
 template<class KeyType, class ValueType, class Hash> 
 ValueType &HashMap<KeyType, ValueType, Hash>::operator[](const KeyType& Key) {
-    size_t BucketIt = Hasher(Key) % Table.size();
+    size_t Index = Hasher(Key) % Table.size();
     while (true) {
-        if (Table[BucketIt] == Nodes.end()) {
-            this->insert({Key, ValueType()});
-            return this->find(Key)->second;
-        } else {
-            if (Table[BucketIt]->first == Key) {
-                return Table[BucketIt]->second;
-            }
+        if (Table[Index] == Nodes.end()) {
+            insert({Key, ValueType()});
+            return find(Key)->second;
+        } else if (Table[Index]->first == Key) {
+            return Table[Index]->second;
         }
-        (++BucketIt) %= Table.size();
+        (++Index) %= Table.size();
     }
 }
 
+
 template<class KeyType, class ValueType, class Hash> 
 const ValueType &HashMap<KeyType, ValueType, Hash>::at(const KeyType& Key) const {
-    size_t BucketIt = Hasher(Key) % Table.size();
+    size_t Index = Hasher(Key) % Table.size();
     while (true) {
-        if (Table[BucketIt] == Nodes.end()) {
-            throw std::out_of_range("");
-        } else {
-            if (Table[BucketIt]->first == Key) {
-                return Table[BucketIt]->second;
-            }
+        if (Table[Index] == Nodes.end()) {
+            throw std::out_of_range("Error, there is no such key :(");
+        } else if (Table[Index]->first == Key) {
+            return Table[Index]->second;
         }
-        (++BucketIt) %= Table.size();
+        (++Index) %= Table.size();
     }
 }
 
 template<class KeyType, class ValueType, class Hash> 
 void HashMap<KeyType, ValueType, Hash>::clear() {
-    NodesSize = 0;
+    NodeCount = 0;
     Nodes.clear();
-    Table.assign(10, Nodes.end());
+    Table.assign(InitSize, Nodes.end());
     return;
 }
 
 template <class KeyType, class ValueType, class Hash> 
 void HashMap<KeyType, ValueType, Hash>::resize() {
-    size_t CurSz = Table.size() * 2;
-    NodesSize = 0;
+    size_t NewSize = Table.size() * LoadFactor;
+    NodeCount = 0;
 
     std::list<Node> CopyNodes;
     for (const Node &to : Nodes) {
@@ -241,10 +239,10 @@ void HashMap<KeyType, ValueType, Hash>::resize() {
     }
     Nodes.clear();
 
-    Table.assign(CurSz, Nodes.end());
+    Table.assign(NewSize, Nodes.end());
 
     for (const Node &to : CopyNodes) {
-        this->insert(to);
+        insert(to);
     }
     return;
 }
