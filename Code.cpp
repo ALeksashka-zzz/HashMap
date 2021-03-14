@@ -3,19 +3,18 @@
 #include <functional>
 #include <iostream>
 #include <list>
-#include <map>
 #include <memory>
 #include <new>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 
-const size_t InitSize = 10;
-const size_t LoadFactor = 2;
-
 template <class KeyType, class ValueType, class Hash = std::hash<KeyType>> 
 class HashMap {
 private:
+    static size_t InitSize;
+    static size_t LoadFactor; 
+
     using Node = typename std::pair <const KeyType, ValueType>;
     using NodeIter = typename std::list<Node>::iterator;
 
@@ -58,6 +57,12 @@ public:
 };
 
 template<class KeyType, class ValueType, class Hash> 
+size_t HashMap<KeyType, ValueType, Hash>::InitSize = 10;
+
+template<class KeyType, class ValueType, class Hash> 
+size_t HashMap<KeyType, ValueType, Hash>::LoadFactor = 2;
+
+template<class KeyType, class ValueType, class Hash> 
 HashMap<KeyType, ValueType, Hash>::HashMap(const Hash &Hasher_): Hasher(Hasher_) {
     Table.assign(InitSize, Nodes.end());
 }
@@ -66,7 +71,7 @@ template<class KeyType, class ValueType, class Hash>
 template<class InputIt>
 HashMap<KeyType, ValueType, Hash>::HashMap(InputIt First, InputIt Last, const Hash &Hasher_) : Hasher(Hasher_) {
     size_t Size = std::distance(First, Last);
-    Table.resize(std::max((Size + 1) * 2, InitSize), Nodes.end());
+    Table.resize(std::max((Size + 1) * LoadFactor, InitSize), Nodes.end());
     for (; First != Last; ++First) {
         insert(*First);
     }
@@ -75,7 +80,7 @@ HashMap<KeyType, ValueType, Hash>::HashMap(InputIt First, InputIt Last, const Ha
 template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>::HashMap(std::initializer_list<Node> InitList, const Hash &Hasher_) : Hasher(Hasher_) {
     size_t Size = InitList.size();
-    Table.resize(std::max((Size + 1) * 2, InitSize), Nodes.end());
+    Table.resize(std::max((Size + 1) * LoadFactor, InitSize), Nodes.end());
     for (const Node &to : InitList) {
         insert(to);
     }
@@ -85,6 +90,8 @@ template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>::HashMap(const HashMap<KeyType, ValueType, Hash> &other) {
     if (this != &other) {
         clear();
+        size_t Size = other.NodeCount;
+        Table.resize(std::max((Size + 1) * LoadFactor, InitSize), Nodes.end());
         for (const Node &to : other) {
             insert(to);
         }
@@ -95,6 +102,8 @@ template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>& HashMap<KeyType, ValueType, Hash>::operator=(const HashMap<KeyType, ValueType, Hash> &other) {
     if (this != &other) {
         clear();
+        size_t Size = other.NodeCount;
+        Table.resize(std::max((Size + 1) * LoadFactor, InitSize), Nodes.end());
         for (const Node &to : other) {
             insert(to);
         }
@@ -155,7 +164,13 @@ void HashMap<KeyType, ValueType, Hash>::erase(const KeyType &Key) {
             Table[Last] = Nodes.end();
             return;
         } else {
-            // The current node (Index) had to be moved to the last empty cell (Last) if it obeys the following conditions.
+            /* The current node (Index) must be moved to the last empty cell (Last) if it obeys the following conditions: 
+                1. Let (Index > Last) and (RealHash <= Last). It means that find(Table[Index]->first) will return Nodes.end() due to the empty cell’s occurring (Last) during the search through the Table. To avoid that mistake, the current node (Index) must be moved.
+                2. Let (Index > Last) and (RealHash > Index). The situation is similar because the empty cell (Last) will be faced first in the search (in find call).
+                3. Let (Index > Last) and (RealHash > Last && RealHash <= Index). It is obvious that Last won’t cause any problem, thus current node stays still.   
+                4. Let (Index < Last). Basing on the previous arguments, it is easily observed that only in case when (RealHash <= Last && RealHash > Index) the current node had to be moved to the last empty cell (Last).
+                5. Notice that Index never equals Last before 'if'.
+            */
             size_t RealHash = Hasher(Table[Index]->first) % Table.size();
             if ((Index > Last && (RealHash <= Last || RealHash > Index)) ||
                 (Index < Last && (RealHash <= Last && RealHash > Index))) {
@@ -244,5 +259,4 @@ void HashMap<KeyType, ValueType, Hash>::resize() {
     for (const Node &to : CopyNodes) {
         insert(to);
     }
-    return;
 }
