@@ -1,3 +1,3 @@
 # HashMap
 
-HashMap implementation (used open addressing for colision resolution).
+HashMap implementation (used open addressing for collision resolution).
